@@ -7,8 +7,12 @@
 
 import Translation
 
+/// Describes the outcome of a translation request.
 enum TranslationResult {
+    /// The translation completed successfully with the supplied responses.
     case success([TranslationSession.Response])
+    /// The translation failed because a more specific configuration is required for the detected language.
     case needsConfigUpdate(Locale.Language)
-    case failure
+    /// The translation failed with a structured error.
+    case failure(TranslationServiceError)
 }

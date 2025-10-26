@@ -5,6 +5,7 @@
 //  Created by Avi Wadhwa on 2025-09-08.
 //
 
+/// User-selectable Chinese script conversion preferences.
 enum ChineseConversion: Int, CaseIterable, Identifiable {
     case none = 0
     case simplified
@@ -16,6 +17,7 @@ enum ChineseConversion: Int, CaseIterable, Identifiable {
         return self
     }
     
+    /// Human-readable label describing the conversion preference.
     var description: String {
         switch self {
             case .none:

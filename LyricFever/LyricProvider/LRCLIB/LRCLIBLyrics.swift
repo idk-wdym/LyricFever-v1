@@ -29,6 +29,7 @@ struct LRCLIBLyrics: Codable {
 //        case lyrics
     }
     
+    /// Parses synced lyric markup from LRCLIB into timestamped lyric lines.
     static func decodeLyrics(input: String) -> [LyricLine] {
         var lyricsArray: [LyricLine] = []
         let lines = input.components(separatedBy: "\n")

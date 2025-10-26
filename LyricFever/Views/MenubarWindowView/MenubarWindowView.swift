@@ -8,6 +8,7 @@
 import SwiftUI
 import LaunchAtLogin
 import Translation
+import OSLog
 
 struct MenubarWindowView: View {
     @Environment(\.openURL) var openURL
@@ -17,6 +18,7 @@ struct MenubarWindowView: View {
     @Environment(\.colorScheme) var colorScheme
     @State var currentHoveredItem = MenubarButtonHighlight.none
     @State var supportedLanguages: [Locale.Language] = []
+    private let logger = AppLoggerFactory.makeLogger(category: "MenubarWindowView")
     
     @ViewBuilder
     var profilePicViewHeaderView: some View {
@@ -243,11 +245,11 @@ struct MenubarWindowView: View {
                    viewmodel.translationSourceLanguage = nil
                }
                guard let trackID = viewmodel.currentlyPlaying else {
-                   print("Translationg: ignoring source language change: nil currentlyPlaying")
+                   logger.notice("Ignoring translation source language change because no track is playing.")
                    return
                }
                guard let translationSourceLanguage = viewmodel.translationSourceLanguage else {
-                   print("Translation: ingoring source language change: nil source language")
+                   logger.notice("Ignoring translation source language change because selection was cleared.")
                    return
                }
                let localeIdentifier = translationSourceLanguage.maximalIdentifier
@@ -255,15 +257,15 @@ struct MenubarWindowView: View {
 //                   print("Translation: ignoring source language change: nil locale identifier")
 //                   return
 //               }
-               print("Translation: Source language changed. Saving new pair (\(trackID),\(localeIdentifier))  to coredata")
+               logger.info("Saving translation source language \(localeIdentifier, privacy: .public) for track \(trackID, privacy: .public).")
                let newSongToLocaleMapping = SongToLocale(context: viewmodel.coreDataContainer.viewContext)
                newSongToLocaleMapping.id = trackID
                newSongToLocaleMapping.locale = localeIdentifier
                do {
                    try viewmodel.coreDataContainer.viewContext.save()
-                   print("Translation: Successfully saved locale \(newSongToLocaleMapping.locale) for trackID \(trackID)")
+                   logger.info("Translation locale saved for track \(trackID, privacy: .public).")
                } catch {
-                   print("Translation: Couldn't save locale mapping to CoreData: \(error)")
+                   logger.error("Failed to save translation locale mapping: \(error.localizedDescription, privacy: .public)")
                }
            }
        )
@@ -390,7 +392,7 @@ struct MenubarWindowView: View {
                     do {
                         try await viewmodel.refreshLyrics()
                     } catch {
-                        print("Couldn't refresh lyrics: error \(String(describing: error))")
+                        logger.error("Failed to refresh lyrics from menubar: \(String(describing: error), privacy: .public)")
                     }
                 }
             }
@@ -460,7 +462,7 @@ struct MenubarWindowView: View {
                         do {
                             try await viewmodel.uploadLocalLRCFile()
                         } catch {
-                            print("MenuBarWindowView: Upload LRC: Error occurred: \(error)")
+                            logger.error("LRC upload failed: \(error.localizedDescription, privacy: .public)")
                         }
                     }
                 } else {

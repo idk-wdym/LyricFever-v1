@@ -10,6 +10,7 @@
 import SwiftUI
 
 extension View {
+    /// Presents content inside an auxiliary floating panel anchored to the supplied rectangle.
     func floatingPanel<Content: View>(isPresented: Binding<Bool>,
                                       contentRect: CGRect = CGRect(x: 0, y: 0, width: 800, height: 100),
                                       @ViewBuilder content: @escaping () -> Content) -> some View {
@@ -23,6 +24,7 @@ struct FloatingPanelModifier<PanelContent: View>: ViewModifier {
     @ViewBuilder let view: () -> PanelContent
     @State var panel: FloatingPanel<PanelContent>?
  
+    /// Wires presentation and dismissal hooks to manage the floating panel lifecycle.
     func body(content: Content) -> some View {
         content
             .onAppear {
@@ -49,6 +51,7 @@ struct FloatingPanelModifier<PanelContent: View>: ViewModifier {
             }
     }
  
+    /// Presents the panel and fades it into view.
     func present() {
         panel?.orderFront(nil)
         panel?.fadeIn()
@@ -96,23 +99,27 @@ class FloatingPanel<Content: View>: NSPanel {
         hasShadow = false
     }
     
+    /// Keeps the default behaviour when the panel resigns main status.
     override func resignMain() {
         super.resignMain()
     }
-    
+
+    /// Animates the panel to full opacity.
     func fadeIn() {
         self.alphaValue = 0.0
         self.animator().alphaValue = 1.0
     }
-    
+
+    /// Animates the panel to fully transparent and keeps the window open until completion.
     func fadeOut() {
         NSAnimationContext.runAnimationGroup { animation in
             animation.duration = 0.1
             self.animator().alphaValue = 0.0
         }
     }
-    
-     
+
+
+    /// Closes the panel with a short fade-out animation.
     override func close() {
         NSAnimationContext.runAnimationGroup { animation in
             animation.completionHandler = {
@@ -125,6 +132,7 @@ class FloatingPanel<Content: View>: NSPanel {
     override var canBecomeMain: Bool {
         return true
     }
+    /// Positions the panel horizontally centred and slightly above the bottom edge.
     override func center() {
         let rect = self.screen?.frame
         self.setFrameOrigin(NSPoint(x: (rect!.width - self.frame.width)/2, y: (rect!.height - self.frame.height)/5))

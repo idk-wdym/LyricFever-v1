@@ -12,6 +12,7 @@ import CoreData
 
 extension SongObject {
 
+    /// Returns a typed fetch request for ``SongObject`` entities.
     @nonobjc public class func fetchRequest() -> NSFetchRequest<SongObject> {
         return NSFetchRequest<SongObject>(entityName: "SongObject")
     }

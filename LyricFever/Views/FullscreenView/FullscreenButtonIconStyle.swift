@@ -12,6 +12,7 @@ struct FullscreenButtonIconStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     
     var ishovering = false
+    /// Builds the fullscreen control button appearance, including hover and pressed states.
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundColor(isEnabled ? .primary : .gray)

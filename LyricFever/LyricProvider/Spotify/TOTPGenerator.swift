@@ -9,6 +9,7 @@ import SwiftOTP
 
 // Thanks to Mx-lris
 enum TOTPGenerator {
+     /// Generates the Spotify authentication TOTP using the provided server time.
      static func generate(serverTimeSeconds: Int) -> String? {
          let secretCipher = [12, 56, 76, 33, 88, 44, 88, 33, 78, 78, 11, 66, 22, 22, 55, 69, 54]
  

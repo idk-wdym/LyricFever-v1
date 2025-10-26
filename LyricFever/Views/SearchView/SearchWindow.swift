@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import OSLog
 
 struct SearchWindow: View {
     @Environment(ViewModel.self) var viewmodel
@@ -17,6 +18,7 @@ struct SearchWindow: View {
     @State private var selectedLyric: UUID? = nil
     @State private var lyricsAreApplied: Bool = false
     @State private var searchTask: Task<Void, Never>? = nil
+    private let logger = AppLoggerFactory.makeLogger(category: "SearchWindow")
     
     private let overlayHeight: CGFloat = 250
     
@@ -37,7 +39,7 @@ struct SearchWindow: View {
                     do {
                         try await searchLyrics()
                     } catch {
-                        print("Search Task Error: \(error)")
+                        logger.error("Search task failed: \(error.localizedDescription, privacy: .public)")
                     }
                 }
             } label: {
@@ -105,7 +107,7 @@ struct SearchWindow: View {
         }
     }
     
-    // Helper to format milliseconds as mm:ss
+    /// Formats a millisecond timestamp into an ``mm:ss`` string for display.
     private func formattedTimestamp(ms: TimeInterval) -> String {
         let totalSeconds = Int(ms) / 1000
         let formatter = DateComponentsFormatter()
@@ -139,6 +141,7 @@ struct SearchWindow: View {
         }
     }
     
+    /// Queries each network lyric provider for matches and aggregates the combined results.
     func searchLyrics() async throws {
         isFetching = true
         defer { isFetching = false }
@@ -169,7 +172,7 @@ struct SearchWindow: View {
                     do {
                         try await searchLyrics()
                     } catch {
-                        print("Search task error: \(error)")
+                        logger.error("Search task failed during pagination: \(error.localizedDescription, privacy: .public)")
                     }
                 }
             }
