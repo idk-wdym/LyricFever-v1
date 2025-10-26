@@ -12,6 +12,83 @@ Download the DMG file [here](https://github.com/aviwad/LyricFever/releases/downl
 ### Homebrew
 Run `brew install lyric-fever`
 
+## Building from Source
+
+### Prerequisites
+- macOS Sonoma (14.0) or newer with the latest Xcode command-line tools installed.
+- Xcode 15 or newer with the "Lyric Fever" scheme selected for both building and testing.
+- An Apple Developer account with a valid Developer ID Application certificate if you intend to distribute a signed build.
+
+### Run the Automated Test Suite
+1. Open **Terminal** and navigate to the repository root.
+2. Execute the tests with coverage enabled:
+
+   ```bash
+   xcodebuild \
+     -project "Lyric Fever.xcodeproj" \
+     -scheme "Lyric Fever" \
+     -destination 'platform=macOS' \
+     -enableCodeCoverage YES \
+     test
+   ```
+
+### Produce a Release Build Archive
+1. Clean previous artifacts and create a Release archive that Xcode can export:
+
+   ```bash
+   xcodebuild \
+     -project "Lyric Fever.xcodeproj" \
+     -scheme "Lyric Fever" \
+     -configuration Release \
+     -destination 'generic/platform=macOS' \
+     -archivePath build/LyricFever \
+     clean archive
+   ```
+
+2. If you plan to notarize or distribute the build, create an `ExportOptions.plist` (for example `build/ExportOptions.plist`) with your signing method, then export the app bundle:
+
+   ```bash
+   xcodebuild \
+     -exportArchive \
+     -archivePath build/LyricFever.xcarchive \
+     -exportPath build/Release \
+     -exportOptionsPlist build/ExportOptions.plist
+   ```
+
+   A minimal export options file for Developer ID signing looks like:
+
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0">
+     <dict>
+       <key>method</key>
+       <string>developer-id</string>
+       <key>signingStyle</key>
+       <string>manual</string>
+       <key>teamID</key>
+       <string>YOUR_TEAM_ID_HERE</string>
+     </dict>
+   </plist>
+   ```
+
+### Package the App as a DMG
+1. Ensure the exported `.app` lives at `build/Release/Lyric Fever.app`.
+2. Create a compressed disk image:
+
+   ```bash
+   hdiutil create \
+     -volname "Lyric Fever" \
+     -srcfolder "build/Release/Lyric Fever.app" \
+     -ov \
+     -format UDZO \
+     build/LyricFever.dmg
+   ```
+
+3. (Optional) Notarize the DMG with `xcrun notarytool submit` and staple the ticket using `xcrun stapler staple build/LyricFever.dmg`.
+
+After notarization succeeds, the DMG is ready for distribution or testing on other Sonoma machines.
+
 ## Screenshots
 [lyricfeverad.webm](https://github.com/user-attachments/assets/8881ae23-69d3-4b81-875b-31f12c577fa0)
 
