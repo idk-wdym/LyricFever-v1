@@ -15,6 +15,7 @@ public struct SmallMenubarButtonStyle: ButtonStyle {
         buttonState == .disabled
     }
     
+    /// Renders the compact menubar button with consistent spacing and disabled styling.
     public func makeBody(configuration: Configuration) -> some View {
         VStack(spacing: 5) {
             ZStack {

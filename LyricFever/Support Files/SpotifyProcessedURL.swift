@@ -1,4 +1,5 @@
 extension String {
+    /// Converts a Spotify URI string into the canonical track identifier used by the API.
     func spotifyProcessedUrl() -> String? {
         let components = self.components(separatedBy: ":")
         guard components.count > 2 else { return nil }

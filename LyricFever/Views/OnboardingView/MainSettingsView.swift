@@ -14,6 +14,7 @@
 
 import SwiftUI
 import SDWebImageSwiftUI
+import OSLog
 
 enum MainSettingsError: Error, Identifiable, CaseIterable {
     case openSpotify
@@ -42,6 +43,7 @@ struct MainSettingsView: View {
     @State var permissionDenied: Bool = false
     @State var error: MainSettingsError = .openSpotify
     @AppStorage("spotifyOrAppleMusic") var spotifyOrAppleMusic: Bool = false
+    private let logger = AppLoggerFactory.makeLogger(category: "MainSettingsView")
     
     @ViewBuilder
     var permissionDeniedView: some View {
@@ -80,7 +82,7 @@ struct MainSettingsView: View {
             HStack {
                 Button("Give Spotify Permissions") {
                     if !viewModel.spotifyPlayer.isRunning {
-                        print("Spotify not running")
+                        logger.warning("Spotify is not running during permissions request.")
                         error = .openSpotify
                     } else if !viewModel.spotifyPlayer.isAuthorized {
                         error = .openSpotify
@@ -159,7 +161,7 @@ struct MainSettingsView: View {
             .animation(.bouncy, value: permissionDenied)
             .animation(.bouncy, value: error)
             .onChange(of: viewModel.currentPlayer) {
-                print("Updating permission booleans based on media player change")
+                logger.info("Updating permission state because the current player changed.")
                 switch viewModel.currentPlayer {
                 case .appleMusic:
                         error = .openAppleMusic

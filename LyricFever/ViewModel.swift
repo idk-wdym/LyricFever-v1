@@ -12,25 +12,39 @@ import Foundation
 import AmplitudeSwift
 import SwiftUI
 import MediaPlayer
+import OSLog
 #if os(macOS)
 import WebKit
 import Translation
 import KeyboardShortcuts
 #endif
 
+private let colorDataLogger = Logger(subsystem: "com.aviwad.LyricFever", category: "ViewModel.ColorPersistence")
+private let translationLogger = Logger(subsystem: "com.aviwad.LyricFever", category: "ViewModel.Translation")
+private let romanizationLogger = Logger(subsystem: "com.aviwad.LyricFever", category: "ViewModel.Romanization")
+private let chineseConversionLogger = Logger(subsystem: "com.aviwad.LyricFever", category: "ViewModel.ChineseConversion")
+
 @MainActor
 @Observable class ViewModel {
     static let shared = ViewModel()
     var currentlyPlaying: String?
-    
+
     var currentVolume: Int = 0
-    
+
     var artworkImage: NSImage?
     var currentArtworkURL: URL?
 
     var duration: Int = 0
     var currentTime = CurrentTimeWithStoredDate(currentTime: 0)
-    
+
+    private let logger = AppLoggerFactory.makeLogger(category: "ViewModel")
+
+    /// Routes diagnostic payloads through the shared view-model logger.
+    private func log(_ items: Any..., separator: String = " ", terminator: String = "\n", level: OSLogType = .default) {
+        let message = items.map { String(describing: $0) }.joined(separator: separator)
+        logger.log(level: level, "\(message, privacy: .public)")
+    }
+
     var formattedCurrentTime: String {
         let baseTime = currentTime.currentTime
         let totalSeconds = Int(baseTime) / 1000
@@ -40,12 +54,13 @@ import KeyboardShortcuts
         return formatter.string(from: TimeInterval(totalSeconds)) ?? "0:00"
     }
     
+    /// Formats the elapsed playback time relative to the supplied date snapshot.
     func formattedCurrentTime(for date: Date) -> String {
         let baseTime = currentTime.currentTime
         let delta = date.timeIntervalSince(currentTime.storedDate)
-//        print("Formatted Current Time: delta is \(delta)")
+//        log("Formatted Current Time: delta is \(delta)")
         let totalSeconds = Int((baseTime + delta) / 1000)
-//        print("total seconds should be \(totalSeconds)")
+//        log("total seconds should be \(totalSeconds)")
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.minute, .second]
         formatter.zeroFormattingBehavior = [.pad]
@@ -166,6 +181,8 @@ import KeyboardShortcuts
     private var currentLyricsDriftFix: Task<Void,Error>?
     var isFetching = false
     private var currentAppleMusicFetchTask: Task<Void,Error>?
+    private var romanizationTask: Task<Void, Never>?
+    private var chineseConversionTask: Task<Void, Never>?
     
     // Songs are translated to user locale
     let systemLocale: Locale
@@ -290,13 +307,13 @@ import KeyboardShortcuts
         }
         
         // onAppear()
-        print("on appear running")
+        log("on appear running")
         if userDefaultStorage.latestUpdateWindowShown < 23 {
             return
         }
         #endif
         if userDefaultStorage.cookie.count == 0 {
-            print("Setting hasOnboarded to false due to empty cookie")
+            log("Setting hasOnboarded to false due to empty cookie")
             userDefaultStorage.hasOnboarded = false
             return
         }
@@ -306,7 +323,7 @@ import KeyboardShortcuts
         guard isPlayerRunning else {
             return
         }
-        print("Application just started. lets check whats playing")
+        log("Application just started. lets check whats playing")
         
         isPlaying = currentPlayerInstance.isPlaying
         userDefaultStorage.hasOnboarded = currentPlayerInstance.isAuthorized
@@ -331,6 +348,8 @@ import KeyboardShortcuts
         
     }
     
+    /// Iterates all configured lyric providers and returns the first successful network fetch.
+    /// - Returns: Lyric payload and optional colour data sourced from the network.
     @MainActor
     func fetchAllNetworkLyrics() async -> NetworkFetchReturn {
         guard let currentlyPlaying, let currentlyPlayingName else {
@@ -338,38 +357,39 @@ import KeyboardShortcuts
         }
         for networkLyricProvider in allNetworkLyricProviders {
             do {
-                print("FetchAllNetworkLyrics: fetching from \(networkLyricProvider.providerName)")
+                log("FetchAllNetworkLyrics: fetching from \(networkLyricProvider.providerName)")
                 let lyrics = try await networkLyricProvider.fetchNetworkLyrics(trackName: currentlyPlayingName, trackID: currentlyPlaying, currentlyPlayingArtist: currentlyPlayingArtist, currentAlbumName: currentAlbumName)
                 if !lyrics.lyrics.isEmpty {
                     amplitude.track(eventType: "\(networkLyricProvider.providerName) Fetch")
-                    print("FetchAllNetworkLyrics: returning lyrics from \(networkLyricProvider.providerName)")
+                    log("FetchAllNetworkLyrics: returning lyrics from \(networkLyricProvider.providerName)")
                     //TODO: save lyrics here
                     SongObject(from: lyrics.lyrics, with: coreDataContainer.viewContext, trackID: currentlyPlaying, trackName: currentlyPlayingName)
                     saveCoreData()
                     return lyrics
                 } else {
-                    print("FetchAllNetworkLyrics: no lyrics from \(networkLyricProvider.providerName)")
+                    log("FetchAllNetworkLyrics: no lyrics from \(networkLyricProvider.providerName)")
                 }
             } catch {
-                print("Caught exception on \(networkLyricProvider.providerName): \(error)")
+                log("Caught exception on \(networkLyricProvider.providerName): \(error)", level: .error)
             }
         }
         return NetworkFetchReturn(lyrics: [], colorData: nil)
     }
     
     #if os(macOS)
+    /// Refreshes lyrics for the current track while honouring cancellation and logging failures.
     func refreshLyrics() async throws {
         // todo: romanize
         if currentPlayer == .appleMusic {
-            print("Refresh Lyrics: Calling Apple Music Network fetch")
+            log("Refresh Lyrics: Calling Apple Music Network fetch")
             try await appleMusicNetworkFetch()
         }
         guard let currentlyPlaying, let currentlyPlayingName, let currentDuration = currentPlayerInstance.durationAsTimeInterval else {
             return
         }
-        print("Calling refresh lyrics")
+        log("Calling refresh lyrics")
         guard let finalLyrics = await self.fetch(for: currentlyPlaying, currentlyPlayingName, checkCoreDataFirst: false) else {
-            print("Refresh Lyrics: Failed to run network fetch")
+            log("Refresh Lyrics: Failed to run network fetch", level: .error)
             return
         }
         if finalLyrics.isEmpty {
@@ -381,7 +401,7 @@ import KeyboardShortcuts
 //        romanizeDidChange()
 //        reloadTranslationConfigIfTranslating()
 //        lyricsIsEmptyPostLoad = currentlyPlayingLyrics.isEmpty
-//        print("HELLOO")
+//        log("HELLOO")
 //        if isPlaying, !currentlyPlayingLyrics.isEmpty, showLyrics, userDefaultStorage.hasOnboarded {
 //            startLyricUpdater()
 //        }
@@ -389,14 +409,28 @@ import KeyboardShortcuts
 //        callColorDataServiceOnLyricColorOrArtwork(colorData: finalLyrics.colorData)
     }
     
-    func callColorDataServiceOnLyricColorOrArtwork(colorData: Int32?) {
-        if let currentlyPlaying, let backgroundColor = colorData ?? artworkImage?.findWhiteTextLegibleMostSaturatedDominantColor() {
-            ColorDataService.saveColorToCoreData(trackID: currentlyPlaying, songColor: backgroundColor)
-            print("ViewModel Refresh Lyrics: New color \(backgroundColor) saved for track \(currentlyPlaying)")
+    /// Persists a resolved lyric colour while guarding against state changes and persistence failures.
+    /// - Parameter colorData: The explicit colour from a lyric provider, if available.
+    func callColorDataServiceOnLyricColorOrArtwork(colorData: Int32?) async {
+        guard let currentlyPlaying else {
+            colorDataLogger.log("Skipping colour persistence because no track is currently playing.")
+            return
+        }
+
+        guard let backgroundColor = colorData ?? artworkImage?.findWhiteTextLegibleMostSaturatedDominantColor() else {
+            colorDataLogger.log("Skipping colour persistence for track \(currentlyPlaying, privacy: .public) because no colour candidate was produced.")
+            return
+        }
+
+        do {
+            try await ColorDataService.saveColorToCoreData(trackID: currentlyPlaying, songColor: backgroundColor)
+            colorDataLogger.info("Persisted colour \(backgroundColor, privacy: .public) for track \(currentlyPlaying, privacy: .public).")
+        } catch {
+            colorDataLogger.error("Failed to persist colour for track \(currentlyPlaying, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
     
-    // Run only on first 2.1 run. Strips whitespace from saved lyrics, and extends final timestamp to prevent karaoke mode racecondition (as well as song on loop race condition)
+    /// Run only on first 2.1 run. Strips whitespace from saved lyrics, and extends final timestamp to prevent karaoke mode racecondition (as well as song on loop race condition)
     func migrateTimestampsIfNeeded(context: NSManagedObjectContext) {
         if !userDefaultStorage.hasMigrated {
             let fetchRequest: NSFetchRequest<SongObject> = SongObject.fetchRequest()
@@ -424,22 +458,23 @@ import KeyboardShortcuts
                 // Mark migration as done
                 userDefaultStorage.hasMigrated = true
             } catch {
-                print("Error migrating data: \(error)")
+                log("Error migrating data: \(error)", level: .error)
             }
         }
     }
     
-    // Runs once user has completed Spotify log-in. Attempt to extract cookie
+    /// Runs once user has completed Spotify log-in. Attempt to extract cookie
     func checkIfLoggedIn() {
         WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
             if let temporaryCookie = cookies.first(where: {$0.name == "sp_dc"}) {
-                print("found the sp_dc cookie")
+                log("found the sp_dc cookie")
                 self.userDefaultStorage.cookie = temporaryCookie.value
                 NotificationCenter.default.post(name: Notification.Name("didLogIn"), object: nil)
             }
         }
     }
     
+    /// Opens settings.
     func openSettings(_ openWindow: OpenWindowAction) {
         openWindow(id: "onboarding")
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -448,6 +483,7 @@ import KeyboardShortcuts
     }
     #endif
     
+    /// Toggles lyrics.
     func toggleLyrics() {
         if showLyrics {
             startLyricUpdater()
@@ -456,6 +492,7 @@ import KeyboardShortcuts
         }
     }
     
+    /// Opens translation help on first run.
     func openTranslationHelpOnFirstRun(_ openURL: OpenURLAction) {
         if !userDefaultStorage.hasTranslated {
             openURL(URL(string: "https://aviwadhwa.com/TranslationHelp")!)
@@ -464,53 +501,89 @@ import KeyboardShortcuts
     }
     
     @MainActor
+    /// Initiates a translation request and updates state based on the service result.
+    /// - Parameter session: The translation session used to execute the request.
     func translationTask(_ session: TranslationSession) async {
+        translationLogger.info("Starting translation for \(currentlyPlayingLyrics.count, privacy: .public) lyric lines.")
         isFetchingTranslation = true
-        let translationResponse = await TranslationService.translationTask(session, request: currentlyPlayingLyrics.map { TranslationSession.Request(lyric: $0) })
-        
+
+        let request = currentlyPlayingLyrics.map { TranslationSession.Request(lyric: $0) }
+        let translationResponse = await TranslationService.translationTask(session, request: request)
+
         switch translationResponse {
-            case .success(let array):
-                print("Translation Service: isFetchingTranslation set to false due to success")
-                isFetchingTranslation = false
-                if currentlyPlayingLyrics.count == array.count {
-                    translatedLyric = array.map {
-                        $0.targetText
+        case .success(let array):
+            translationLogger.info("Translation completed successfully with \(array.count, privacy: .public) responses.")
+            isFetchingTranslation = false
+            guard currentlyPlayingLyrics.count == array.count else {
+                translationLogger.warning("Mismatched lyric and translation counts; discarding translations.")
+                translatedLyric = []
+                return
+            }
+            translatedLyric = array.map { $0.targetText }
+
+        case .needsConfigUpdate(let language):
+            translationLogger.notice("Translation requires configuration update for language \(language.identifier, privacy: .public).")
+            translationSessionConfig = TranslationSession.Configuration(source: language, target: userLocaleLanguage)
+            isFetchingTranslation = false
+
+        case .failure(let error):
+            translationLogger.error("Translation failed: \(error.localizedDescription, privacy: .public)")
+            isFetchingTranslation = false
+        }
+    }
+    
+    /// Regenerates romanized lyrics when the romanization preference changes.
+    func romanizeDidChange() {
+        romanizationTask?.cancel()
+
+        guard userDefaultStorage.romanize else {
+            romanizationLogger.info("Romanization disabled; clearing cached romanized lyrics.")
+            romanizedLyrics = []
+            return
+        }
+
+        romanizationLogger.info("Regenerating romanized lyrics for track \(currentlyPlaying ?? "unknown", privacy: .public).")
+
+        let sourceLyrics: [LyricLine]
+        if !chineseConversionLyrics.isEmpty {
+            sourceLyrics = chineseConversionLyrics.enumerated().map { index, words in
+                let baseTime = currentlyPlayingLyrics.indices.contains(index) ? currentlyPlayingLyrics[index].startTimeMS : 0
+                return LyricLine(startTime: baseTime, words: words)
+            }
+        } else {
+            sourceLyrics = currentlyPlayingLyrics
+        }
+
+        romanizationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                var results: [String] = []
+                for lyric in sourceLyrics {
+                    try Task.checkCancellation()
+                    do {
+                        let romanized = try await RomanizerService.generateRomanizedLyric(lyric)
+                        results.append(romanized)
+                    } catch RomanizerServiceError.emptyInput {
+                        continue
                     }
                 }
-            case .needsConfigUpdate(let language):
-                // TODO: why do i sleep?
-//                try? await Task.sleep(for: .seconds(1))
-                translationSessionConfig = TranslationSession.Configuration(source: language, target: userLocaleLanguage)
-            case .failure:
-                print("Translation Service: isFetchingTranslation set to false due to failure")
-                isFetchingTranslation = false
-                return
-        }
-    }
-    
-    func romanizeDidChange() {
-        if userDefaultStorage.romanize {
-            // Generate romanized lyrics from chinese conversion
-            if !chineseConversionLyrics.isEmpty {
-                print("Romanized Lyrics generated from romanize value change for song \(currentlyPlaying) with chinese conversion")
-                romanizedLyrics = chineseConversionLyrics.compactMap({
-                    RomanizerService.generateRomanizedLyric(LyricLine(startTime: 0, words: $0))
-                })
-            // Generate romanized lyrics from original lyrics
-            } else {
-                print("Romanized Lyrics generated from romanize value change for song \(currentlyPlaying)")
-                romanizedLyrics = currentlyPlayingLyrics.compactMap({
-                    RomanizerService.generateRomanizedLyric($0)
-                })
+
+                await MainActor.run {
+                    self.romanizedLyrics = results
+                }
+                romanizationLogger.info("Romanized \(results.count, privacy: .public) lyric lines.")
+            } catch is CancellationError {
+                romanizationLogger.notice("Romanization task cancelled for track \(self.currentlyPlaying ?? "unknown", privacy: .public).")
+            } catch {
+                romanizationLogger.error("Romanization task failed: \(error.localizedDescription, privacy: .public)")
+                await MainActor.run {
+                    self.romanizedLyrics = []
+                }
             }
-            
-//            romanizeMetadata()
-        } else {
-            romanizedLyrics = []
         }
     }
     
-    // Only called when Romanize is true
+/// Only called when Romanize is true
 //    func romanizeMetadata() {
 //        // Generate romanized metadata from name & artist
 //        if userDefaultStorage.romanizeMetadata, let currentlyPlayingName, let romanizedName = RomanizerService.generateRomanizedString(currentlyPlayingName), let currentlyPlayingArtist, let romanizedArtist = RomanizerService.generateRomanizedString(currentlyPlayingArtist) {
@@ -519,63 +592,105 @@ import KeyboardShortcuts
 //        }
 //    }
     
-    func romanizeName(_ currentlyPlayingName: String) -> String? {
-        if let romanizedName = RomanizerService.generateRomanizedString(currentlyPlayingName) {
-            return romanizedName
+    /// Romanizes the currently playing track name.
+    /// - Parameter currentlyPlayingName: The track name to romanize.
+    /// - Returns: A romanized representation if conversion succeeds.
+    func romanizeName(_ currentlyPlayingName: String) async -> String? {
+        do {
+            return try await RomanizerService.generateRomanizedString(currentlyPlayingName)
+        } catch {
+            romanizationLogger.error("Failed to romanize name: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
-        return nil
+    }
+
+    /// Romanizes the currently playing artist name.
+    /// - Parameter currentlyPlayingArtist: The artist name to romanize.
+    /// - Returns: A romanized representation if conversion succeeds.
+    func romanizeArtist(_ currentlyPlayingArtist: String) async -> String? {
+        do {
+            return try await RomanizerService.generateRomanizedString(currentlyPlayingArtist)
+        } catch {
+            romanizationLogger.error("Failed to romanize artist: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
     
-    func romanizeArtist(_ currentlyPlayingArtist: String) -> String? {
-        if let romanizedArtist = RomanizerService.generateRomanizedString(currentlyPlayingArtist) {
-            return romanizedArtist
-        }
-        return nil
-    }
-    
+    /// Regenerates Chinese script conversions when the preference changes.
     func chinesePreferenceDidChange() {
-        if let chinesePreference = ChineseConversion(rawValue: userDefaultStorage.chinesePreference), chinesePreference != .none {
-            print("Generating Chinese conversion for song \(currentlyPlaying) to chinese style \(chinesePreference.description)")
-            //TODO: check if Task was cancelled
-            let chineseConversionLyrics: [String] = currentlyPlayingLyrics.compactMap({
-                switch chinesePreference {
-                    case .none:
-                        return nil
-                    case .simplified:
-                        return RomanizerService.generateMainlandTransliteration($0)
-                    case .traditionalNeutral:
-                        return RomanizerService.generateTraditionalNeutralTransliteration($0)
-                    case .traditionalTaiwan:
-                        return RomanizerService.generateTaiwanTransliteration($0)
-                    case .traditionalHK:
-                        return RomanizerService.generateHongKongTransliteration($0)
-                }
-            })
-            //TODO: check if Task was cancelled
-            if !Task.isCancelled {
-                self.chineseConversionLyrics = chineseConversionLyrics
-            }
-        } else {
+        chineseConversionTask?.cancel()
+
+        guard let chinesePreference = ChineseConversion(rawValue: userDefaultStorage.chinesePreference), chinesePreference != .none else {
+            chineseConversionLogger.info("Clearing Chinese conversion lyrics because preference is set to none.")
             chineseConversionLyrics = []
+            romanizeDidChange()
+            return
+        }
+
+        chineseConversionLogger.info("Generating Chinese conversion for track \(currentlyPlaying ?? "unknown", privacy: .public) using style \(chinesePreference.description, privacy: .public).")
+        let lyrics = currentlyPlayingLyrics
+
+        chineseConversionTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                var converted: [String] = []
+                for lyric in lyrics {
+                    try Task.checkCancellation()
+                    do {
+                        let value: String
+                        switch chinesePreference {
+                        case .none:
+                            continue
+                        case .simplified:
+                            value = try await RomanizerService.generateMainlandTransliteration(lyric)
+                        case .traditionalNeutral:
+                            value = try await RomanizerService.generateTraditionalNeutralTransliteration(lyric)
+                        case .traditionalTaiwan:
+                            value = try await RomanizerService.generateTaiwanTransliteration(lyric)
+                        case .traditionalHK:
+                            value = try await RomanizerService.generateHongKongTransliteration(lyric)
+                        }
+                        converted.append(value)
+                    } catch RomanizerServiceError.emptyInput {
+                        continue
+                    }
+                }
+
+                await MainActor.run {
+                    self.chineseConversionLyrics = converted
+                    self.romanizeDidChange()
+                }
+                chineseConversionLogger.info("Generated \(converted.count, privacy: .public) converted lyric lines.")
+            } catch is CancellationError {
+                chineseConversionLogger.notice("Chinese conversion task cancelled for track \(self.currentlyPlaying ?? "unknown", privacy: .public).");
+            } catch {
+                chineseConversionLogger.error("Chinese conversion task failed: \(error.localizedDescription, privacy: .public)")
+                await MainActor.run {
+                    self.chineseConversionLyrics = []
+                    self.romanizeDidChange()
+                }
+            }
         }
     }
     
     #if os(macOS)
+    /// Saves karaoke font on termination.
     func saveKaraokeFontOnTermination() {
         // This code will be executed just before the app terminates
      UserDefaults.standard.set(karaokeFont.fontName, forKey: "karaokeFontName")
      UserDefaults.standard.set(Double(karaokeFont.pointSize), forKey: "karaokeFontSize")
     }
     
+    /// Handles playback change notifications published by the Music app.
     func appleMusicPlaybackDidChange(_ notification: Notification) {
         guard currentPlayer == .appleMusic else {
             return
         }
         if notification.userInfo?["Player State"] as? String == "Playing" {
-            print("is playing")
+            log("is playing")
             isPlaying = true
         } else {
-            print("paused. timer canceled")
+            log("paused. timer canceled")
             isPlaying = false
             // manually cancels the lyric-updater task bc media is paused
         }
@@ -597,24 +712,25 @@ import KeyboardShortcuts
             if let duration = currentPlayerInstance.duration {
                 self.duration = duration
             }
-            print("REOPEN: currentlyPlayingName is \(currentlyPlayingName)")
+            log("REOPEN: currentlyPlayingName is \(currentlyPlayingName)")
             currentlyPlayingAppleMusicPersistentID = appleMusicPlayer.persistentID
         }
     }
     
+    /// Responds to Spotify Connect state changes so the UI stays in sync.
     func spotifyPlaybackDidChange(_ notification: Notification) {
         guard currentPlayer == .spotify else {
             return
         }
         if notification.userInfo?["Player State"] as? String == "Playing" {
-            print("is playing")
+            log("is playing")
             isPlaying = true
         } else {
-            print("paused. timer canceled")
+            log("paused. timer canceled")
             isPlaying = false
             // manually cancels the lyric-updater task bc media is paused
         }
-        print(notification.userInfo?["Track ID"] as? String)
+        log(notification.userInfo?["Track ID"] as? String)
         let currentlyPlaying = (notification.userInfo?["Track ID"] as? String)?.spotifyProcessedUrl()
         let currentlyPlayingName = (notification.userInfo?["Name"] as? String)
         if currentlyPlaying != "", currentlyPlayingName != "", let duration = currentPlayerInstance.duration {
@@ -626,10 +742,12 @@ import KeyboardShortcuts
         }
     }
     
+    /// Sets up observers and state when the main UI hierarchy appears.
     func onAppear(_ openWindow: OpenWindowAction) {
         setCurrentProperties()
     }
     
+    /// Refreshes lyrics and metadata when the playing track identifier changes.
     func onCurrentlyPlayingIDChange() async {
         currentlyPlayingLyricsIndex = nil
         currentlyPlayingLyrics = []
@@ -645,12 +763,13 @@ import KeyboardShortcuts
 //            reloadTranslationConfigIfTranslating()
 //            lyricsIsEmptyPostLoad = lyrics.isEmpty
 //            if isPlaying, !currentlyPlayingLyrics.isEmpty, showLyrics, userDefaultStorage.hasOnboarded {
-//                print("STARTING UPDATER")
+//                log("STARTING UPDATER")
 //                startLyricUpdater()
 //            }
         }
     }
     
+    /// Sets current properties.
     private func setCurrentProperties() {
         switch currentPlayer {
             case .appleMusic:
@@ -666,7 +785,7 @@ import KeyboardShortcuts
                         self.duration = duration
                         self.currentAlbumName = currentAlbumName
                     }
-                    print("ON APPEAR HAS UPDATED APPLE MUSIC SONG ID")
+                    log("ON APPEAR HAS UPDATED APPLE MUSIC SONG ID")
                     currentlyPlayingAppleMusicPersistentID = appleMusicPlayer.persistentID
                 }
             case .spotify:
@@ -677,12 +796,13 @@ import KeyboardShortcuts
                     self.duration = duration
                     self.currentAlbumName = currentAlbumName
                     self.currentTime = CurrentTimeWithStoredDate(currentTime: 0)
-                    print(currentTrack)
+                    log(currentTrack)
                 }
         }
     }
     
     #else
+    /// Sets current properties.
     func setCurrentProperties() {
         currentlyPlaying = spotifyPlayer.currentTrack?.uri?.spotifyProcessedUrl()
         currentlyPlayingName = spotifyPlayer.trackName
@@ -690,11 +810,12 @@ import KeyboardShortcuts
     }
     #endif
 
+    /// Calculates the lyric index that should be highlighted for a timestamp.
     func upcomingIndex(_ currentTime: Double) -> Int? {
         if let currentlyPlayingLyricsIndex {
             let newIndex = currentlyPlayingLyricsIndex + 1
             if newIndex >= currentlyPlayingLyrics.count {
-                print("REACHED LAST LYRIC!!!!!!!!")
+                log("REACHED LAST LYRIC!!!!!!!!")
                 // if current time is before our current index's start time, the user has scrubbed and rewinded
                 // reset into linear search mode
                 if currentTime < currentlyPlayingLyrics[currentlyPlayingLyricsIndex].startTimeMS {
@@ -709,7 +830,7 @@ import KeyboardShortcuts
                 return nil
             }
             else if  currentTime > currentlyPlayingLyrics[currentlyPlayingLyricsIndex].startTimeMS, currentTime < currentlyPlayingLyrics[newIndex].startTimeMS {
-                print("just the next lyric")
+                log("just the next lyric")
                 return newIndex
             }
         }
@@ -718,6 +839,7 @@ import KeyboardShortcuts
         return currentlyPlayingLyrics.firstIndex(where: {$0.startTimeMS > currentTime})
     }
     
+    /// Periodically polls the active lyric provider to stay aligned with playback.
     func lyricUpdater() async throws {
         repeat {
             guard let currentTime = currentPlayerInstance.currentTime, let lastIndex: Int = upcomingIndex(currentTime) else {
@@ -731,24 +853,25 @@ import KeyboardShortcuts
             }
             let nextTimestamp = currentlyPlayingLyrics[lastIndex].startTimeMS
             let diff = nextTimestamp - currentTime
-            print("current time: \(currentTime)")
+            log("current time: \(currentTime)")
             self.currentTime = CurrentTimeWithStoredDate(currentTime: currentTime)
-            print("next time: \(nextTimestamp)")
-            print("the difference is \(diff)")
+            log("next time: \(nextTimestamp)")
+            log("the difference is \(diff)")
             try await Task.sleep(nanoseconds: UInt64(1000000*diff))
-            print("lyrics exist: \(!currentlyPlayingLyrics.isEmpty)")
-            print("last index: \(lastIndex)")
-            print("currently playing lryics index: \(currentlyPlayingLyricsIndex)")
+            log("lyrics exist: \(!currentlyPlayingLyrics.isEmpty)")
+            log("last index: \(lastIndex)")
+            log("currently playing lryics index: \(currentlyPlayingLyricsIndex)")
             if currentlyPlayingLyrics.count > lastIndex {
                 currentlyPlayingLyricsIndex = lastIndex
             } else {
                 currentlyPlayingLyricsIndex = nil
                 
             }
-            print(currentlyPlayingLyricsIndex ?? "nil")
+            log(currentlyPlayingLyricsIndex ?? "nil")
         } while !Task.isCancelled
     }
     
+    /// Starts lyric updater.
     func startLyricUpdater() {
         currentLyricsUpdaterTask?.cancel()
         if !isPlaying || currentlyPlayingLyrics.isEmpty || mustUpdateUrgent {
@@ -783,7 +906,7 @@ import KeyboardShortcuts
             do {
                 try await lyricUpdater()
             } catch {
-                print("lyrics were canceled \(error)")
+                log("lyrics were canceled \(error)", level: .error)
             }
         }
         Task {
@@ -792,31 +915,34 @@ import KeyboardShortcuts
         
     }
     
+    /// Stops lyric updater.
     func stopLyricUpdater() {
-        print("stop called")
+        log("stop called")
         currentLyricsUpdaterTask?.cancel()
     }
     
+    /// Persists pending Core Data changes when the view-context has dirty state.
     func saveCoreData() {
         let context = coreDataContainer.viewContext
         if context.hasChanges {
             do {
                 try context.save()
-                print("Saved CoreData!")
+                log("Saved CoreData!")
             } catch {
-                print("core data error \(error)")
+                log("core data error \(error)", level: .error)
                 // Show some error here
             }
         } else {
-            print("BAD COREDATA CALL!!")
+            log("BAD COREDATA CALL!!")
         }
     }
     
+    /// Retrieves lyrics for the supplied track, optionally preferring cached Core Data results.
     func fetch(for trackID: String, _ trackName: String, checkCoreDataFirst: Bool = true) async -> [LyricLine]? {
         if isFirstFetch {
             isFirstFetch = false
         }
-        print("Fetch Called for trackID \(trackID), trackName \(trackName), checkCoreDataFirst: \(checkCoreDataFirst)")
+        log("Fetch Called for trackID \(trackID), trackName \(trackName), checkCoreDataFirst: \(checkCoreDataFirst)")
         currentFetchTask?.cancel()
         // i don't set isFetching to true here to prevent "flashes" for CoreData fetches
         defer {
@@ -826,13 +952,14 @@ import KeyboardShortcuts
         do {
             return try await currentFetchTask?.value
         } catch {
-            print("error \(error)")
+            log("error \(error)", level: .error)
             return nil
         }
     }
 
     #if os(macOS)
-    func intToRGB(_ value: Int32) -> Color {//(red: Int, green: Int, blue: Int) {
+    /// Converts the stored integer colour value into a SwiftUI ``Color``.
+    func intToRGB(_ value: Int32) -> Color {
         // Convert negative numbers to an unsigned 32-bit representation
         let unsignedValue = UInt32(bitPattern: value)
         
@@ -843,6 +970,7 @@ import KeyboardShortcuts
         return Color(red: red/255, green: green/255, blue: blue/255) //(red, green, blue)
     }
     
+    /// Applies the current song background colour from Core Data or artwork analysis.
     func setBackgroundColor() {
         guard let currentlyPlaying else {
             return
@@ -858,54 +986,56 @@ import KeyboardShortcuts
                 self.currentBackground = nil
             }
         } catch {
-            print("Error fetching SongObject:", error)
+            log("Error fetching SongObject:", error, level: .error)
         }
     }
     #endif
     
+    /// Pulls lyrics from Core Data when possible and falls back to network providers.
     func fetchLyrics(for trackID: String, _ trackName: String, checkCoreDataFirst: Bool) async throws -> [LyricLine] {
         let initiatingTrackID = trackID
         
         if checkCoreDataFirst, let lyrics = fetchFromCoreData(for: trackID) {
-            print("ViewModel FetchLyrics: got lyrics from core data :D \(trackID) \(trackName)")
+            log("ViewModel FetchLyrics: got lyrics from core data :D \(trackID) \(trackName)")
             try Task.checkCancellation()
             amplitude.track(eventType: "CoreData Fetch")
             // verify non-stale trackID
             if initiatingTrackID != self.currentlyPlaying {
-                print("FetchLyrics: CoreData result stale (initiated: \(initiatingTrackID), current: \(self.currentlyPlaying ?? "nil")). Throwing.")
+                log("FetchLyrics: CoreData result stale (initiated: \(initiatingTrackID), current: \(self.currentlyPlaying ?? "nil")). Throwing.")
                 throw FetchError.staleTrack
             }
             return lyrics
         } else {
-            print("ViewModel FetchLyrics: no lyrics from core data, going to download from internet \(trackID) \(trackName)")
-            print("ViewModel FetchLyrics: isFetching set to true")
+            log("ViewModel FetchLyrics: no lyrics from core data, going to download from internet \(trackID) \(trackName)")
+            log("ViewModel FetchLyrics: isFetching set to true")
             isFetching = true
             
             var networkLyrics: NetworkFetchReturn = await fetchAllNetworkLyrics()
             
             // verify non-stale trackID
             if initiatingTrackID != self.currentlyPlaying {
-                print("FetchLyrics: Network result stale (initiated: \(initiatingTrackID), current: \(self.currentlyPlaying ?? "nil")). Throwing.")
+                log("FetchLyrics: Network result stale (initiated: \(initiatingTrackID), current: \(self.currentlyPlaying ?? "nil")). Throwing.")
                 throw FetchError.staleTrack
             }
             
             guard let duration = currentPlayerInstance.duration else {
-                print("FetchLyrics: Couldn't access current player duration. Giving up on netwokr fetch")
+                log("FetchLyrics: Couldn't access current player duration. Giving up on netwokr fetch")
                 return []
             }
             networkLyrics = networkLyrics.processed(withSongName: trackName, duration: duration)
             
             // verify non-stale trackID
             if initiatingTrackID == self.currentlyPlaying {
-                callColorDataServiceOnLyricColorOrArtwork(colorData: networkLyrics.colorData)
+                await callColorDataServiceOnLyricColorOrArtwork(colorData: networkLyrics.colorData)
             } else {
-                print("FetchLyrics: Skipping color save due to stale track (initiated: \(initiatingTrackID), current: \(self.currentlyPlaying ?? "nil")).")
+                log("FetchLyrics: Skipping color save due to stale track (initiated: \(initiatingTrackID), current: \(self.currentlyPlaying ?? "nil")).")
                 throw FetchError.staleTrack
             }
             return networkLyrics.lyrics
         }
     }
 
+    /// Deletes lyric.
     func deleteLyric(trackID: String) {
         do {
             let fetchRequest: NSFetchRequest<SongObject> = SongObject.fetchRequest()
@@ -921,10 +1051,11 @@ import KeyboardShortcuts
             chineseConversionLyrics = []
             lyricsIsEmptyPostLoad = true
         } catch {
-            print("Error deleting data: \(error)")
+            log("Error deleting data: \(error)", level: .error)
         }
     }
     
+    /// Fetches from core data.
     func fetchFromCoreData(for trackID: String) -> [LyricLine]? {
         let fetchRequest: NSFetchRequest<SongObject> = SongObject.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "id == %@", trackID) // Replace trackID with the desired value
@@ -934,19 +1065,20 @@ import KeyboardShortcuts
             if let songObject = results.first {
                 // Found the SongObject with the matching trackID
                 let lyricsArray = zip(songObject.lyricsTimestamps, songObject.lyricsWords).map { LyricLine(startTime: $0, words: $1) }
-                print("Found SongObject with ID:", songObject.id)
+                log("Found SongObject with ID:", songObject.id)
                 return lyricsArray
             } else {
                 // No SongObject found with the given trackID
-                print("No SongObject found with the provided trackID. \(trackID)")
+                log("No SongObject found with the provided trackID. \(trackID)")
             }
         } catch {
-            print("Error fetching SongObject:", error)
+            log("Error fetching SongObject:", error, level: .error)
         }
         return nil
     }
     
     #if os(macOS)
+    /// Rebuilds the translation session if the user changes related preferences mid-request.
     func reloadTranslationConfigIfTranslating() -> Bool {
         if userDefaultStorage.translate {
             if translationSessionConfig == TranslationSession.Configuration(source: translationSourceLanguage, target: userLocaleLanguage) {
@@ -961,9 +1093,10 @@ import KeyboardShortcuts
     }
     #endif
     
+    /// Fetches translation source language.
     func fetchTranslationSourceLanguage() {
         guard let currentlyPlaying else {
-            print("Translation: ignoring translationSourceLang fetch due to nil currentlyPlaying")
+            log("Translation: ignoring translationSourceLang fetch due to nil currentlyPlaying")
             return
         }
         let fetchRequest: NSFetchRequest<SongToLocale> = SongToLocale.fetchRequest()
@@ -977,11 +1110,12 @@ import KeyboardShortcuts
                 self.translationSourceLanguage = nil
             }
         } catch {
-            print("Error fetching translationSourceLanguage:", error)
+            log("Error fetching translationSourceLanguage:", error, level: .error)
         }
     }
     
     #if os(macOS)
+    /// Sets new lyrics color translation romanization and start updater.
     func setNewLyricsColorTranslationRomanizationAndStartUpdater(with newLyrics: [LyricLine]) {
         currentlyPlayingLyrics = newLyrics
         setBackgroundColor()
@@ -998,6 +1132,7 @@ import KeyboardShortcuts
     }
     
     @MainActor
+    /// Uploads local lrc file.
     func uploadLocalLRCFile() async throws {
         guard let currentlyPlaying = currentlyPlaying, let currentlyPlayingName = currentlyPlayingName else {
             throw CancellationError()
@@ -1014,10 +1149,12 @@ import KeyboardShortcuts
     }
     #endif
     
+    /// Completes the remaining onboarding actions after the settings lyric step finishes.
     func stepsToTakeAfterSettingsLyrics() async {
         
     }
     
+    /// Marks onboarding as complete and updates analytics state.
     func didOnboard() {
         guard isPlayerRunning else {
             isPlaying = false
@@ -1029,7 +1166,7 @@ import KeyboardShortcuts
             #endif
             return
         }
-        print("Application just started (finished onboarding). lets check whats playing")
+        log("Application just started (finished onboarding). lets check whats playing")
         if currentPlayerInstance.isPlaying {
             isPlaying = true
         }
@@ -1037,6 +1174,7 @@ import KeyboardShortcuts
         startLyricUpdater()
     }
     #if os(macOS)
+    /// Resets karaoke prefs.
     func resetKaraokePrefs() {
         userDefaultStorage.karaokeModeHoveringSetting = false
         userDefaultStorage.karaokeUseAlbumColor = true
@@ -1051,9 +1189,9 @@ import KeyboardShortcuts
 #if os(macOS)
 // Apple Music Code
 extension ViewModel {
-    // Similar structure to my other Async functions. Only 1 appleMusic) can run at any given moment
+    /// Similar structure to my other Async functions. Only 1 appleMusic) can run at any given moment
     func appleMusicStarter() async {
-        print("apple music test called again, cancelling previous")
+        log("apple music test called again, cancelling previous")
         currentAppleMusicFetchTask?.cancel()
         let newFetchTask = Task {
             try await self.appleMusicFetch()
@@ -1062,33 +1200,35 @@ extension ViewModel {
         do {
             return try await newFetchTask.value
         } catch {
-            print("error \(error)")
+            log("error \(error)", level: .error)
             return
         }
     }
     
+    /// Polls the Music app for the latest playback state and metadata.
     func appleMusicFetch() async throws {
         // check coredata for apple music persistent id -> spotify id mapping
         if let coreDataSpotifyID = fetchSpotifyIDFromPersistentIDCoreData() {
             if !Task.isCancelled {
-                print("Apple Music CoreData Fetch: setting currentlyPlaying to \(coreDataSpotifyID)")
+                log("Apple Music CoreData Fetch: setting currentlyPlaying to \(coreDataSpotifyID)")
                 self.currentlyPlaying = coreDataSpotifyID
                 return
             }
         }
-        print("Apple Music Fetch: No CoreData val. Fetching from network")
+        log("Apple Music Fetch: No CoreData val. Fetching from network")
         try await appleMusicNetworkFetch()
     }
     
+    /// Resolves additional Apple Music metadata via the web API when needed.
     func appleMusicNetworkFetch() async throws {
         isFetching = true
 //        do {
-//            print("Apple Music Network Fetch: 3 second sleep")
+//            log("Apple Music Network Fetch: 3 second sleep")
 //            try await Task.sleep(for: .seconds(3))
 //        } catch {
-//            print("Apple Music Network Fetch cancelled during the 3 seconds of sleep")
+//            log("Apple Music Network Fetch cancelled during the 3 seconds of sleep")
 //        }
-        print("Apple Music Network Fetch: isFetching set to true")
+        log("Apple Music Network Fetch: isFetching set to true")
         // coredata didn't get us anything
 //        try await spotifyLyricProvider.generateAccessToken()
         
@@ -1111,7 +1251,7 @@ extension ViewModel {
         
         
         if let currentlyPlayingAppleMusicPersistentID, let currentlyPlaying {
-            print("Apple Music Network Fetch: Saving persistent id \(currentlyPlayingAppleMusicPersistentID) and spotify ID \(currentlyPlaying)")
+            log("Apple Music Network Fetch: Saving persistent id \(currentlyPlayingAppleMusicPersistentID) and spotify ID \(currentlyPlaying)")
             // save the mapping into coredata persistentIDToSpotify
             let newPersistentIDToSpotifyIDMapping = PersistentIDToSpotify(context: coreDataContainer.viewContext)
             newPersistentIDToSpotifyIDMapping.persistentID = currentlyPlayingAppleMusicPersistentID
@@ -1120,10 +1260,11 @@ extension ViewModel {
         }
     }
     
+    /// Fetches spotify id from persistent id core data.
     func fetchSpotifyIDFromPersistentIDCoreData() -> String? {
         let fetchRequest: NSFetchRequest<PersistentIDToSpotify> = PersistentIDToSpotify.fetchRequest()
         guard let currentlyPlayingAppleMusicPersistentID else {
-            print("No persistent ID available. it's nil! should have never happened")
+            log("No persistent ID available. it's nil! should have never happened")
             return nil
         }
         fetchRequest.predicate = NSPredicate(format: "persistentID == %@", currentlyPlayingAppleMusicPersistentID) // Replace persistentID with the desired value
@@ -1132,22 +1273,23 @@ extension ViewModel {
             let results = try coreDataContainer.viewContext.fetch(fetchRequest)
             if let persistentIDToSpotify = results.first {
                 // Found the persistentIDToSpotify object with the matching persistentID
-                print("Apple Music CoreData Fetch: Found SpotifyID \(persistentIDToSpotify.spotifyID) for \(persistentIDToSpotify.persistentID)")
+                log("Apple Music CoreData Fetch: Found SpotifyID \(persistentIDToSpotify.spotifyID) for \(persistentIDToSpotify.persistentID)")
                 return persistentIDToSpotify.spotifyID
             } else {
                 // No SongObject found with the given trackID
-                print("No spotifyID found with the provided persistentID. \(currentlyPlayingAppleMusicPersistentID)")
+                log("No spotifyID found with the provided persistentID. \(currentlyPlayingAppleMusicPersistentID)")
             }
         } catch {
-            print("Error fetching persistentIDToSpotify:", error)
+            log("Error fetching persistentIDToSpotify:", error, level: .error)
         }
         return nil
     }
     
+    /// Creates a helper that maps Apple Music identifiers to Spotify equivalents.
     private func musicToSpotifyHelper() async throws -> AppleMusicHelper? {
         // Manually search song name, artist name
         guard let currentlyPlayingArtist, let currentlyPlayingName else {
-            print("\(#function) currentlyPlayingName or currentlyPlayingArtist missing")
+            log("\(#function) currentlyPlayingName or currentlyPlayingArtist missing")
             return nil
         }
         return try await spotifyLyricProvider.searchForTrackForAppleMusic(artist: currentlyPlayingArtist, track: currentlyPlayingName)

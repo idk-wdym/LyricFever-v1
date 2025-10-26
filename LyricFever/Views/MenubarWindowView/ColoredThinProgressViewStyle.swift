@@ -11,6 +11,7 @@ struct ColoredThinProgressViewStyle: ProgressViewStyle {
     var color: Color
     var thickness: CGFloat
 
+    /// Paints the thin progress indicator using the configured colour and thickness values.
     func makeBody(configuration: Configuration) -> some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {

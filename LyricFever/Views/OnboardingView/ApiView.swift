@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SDWebImageSwiftUI
+import OSLog
 
 struct ApiView: View {
     @Environment(\.dismiss) var dismiss
@@ -17,6 +18,7 @@ struct ApiView: View {
     @StateObject var navigationState = NavigationState()
     @State var loginMethod = true
     @State var loggedIn = false
+    private let logger = AppLoggerFactory.makeLogger(category: "ApiView")
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             StepView(title: "Please log into Spotify", description: "I download lyrics from Spotify (and use LRCLIB and NetEase as backups)")
@@ -118,6 +120,7 @@ struct ApiView: View {
         }
     }
     
+    /// Polls for the Spotify authentication cookie and advances onboarding when found.
     func checkForLogin() {
         Task {
             do {
@@ -126,7 +129,7 @@ struct ApiView: View {
                 errorMessage = nil
                 ViewModel.shared.userDefaultStorage.hasOnboarded = true
             } catch {
-                print("Failed to generate access token: \(error)")
+                logger.error("Failed to generate Spotify access token via checkForLogin: \(error.localizedDescription, privacy: .public)")
                 errorMessage = String(describing: error)
             }
         }

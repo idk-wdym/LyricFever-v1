@@ -6,10 +6,12 @@
 //
 
 import Foundation
+import OSLog
 
 
 // https://stackoverflow.com/questions/35407212/how-to-parse-string-to-nstimeinterval
 extension String {
+    /// Converts an LRCLIB timestamp string into a millisecond time interval.
     func convertToTimeInterval() -> TimeInterval {
         guard self != "" else {
             return 0
@@ -28,7 +30,9 @@ extension String {
 
 struct AnyCodable: Codable {}
 
+/// Decodes an array of ``LRCLIBLyrics`` while skipping malformed entries.
 struct PluralLRCLIBLyrics: Decodable {
+    private static let logger = AppLoggerFactory.makeLogger(category: "LRCLIBLyricProvider")
     var lyrics: [LRCLIBLyrics]
 
     init(from decoder: Decoder) throws {
@@ -45,13 +49,13 @@ struct PluralLRCLIBLyrics: Decodable {
                 // If that still failed (some malformed token), try moving past it using a superDecoder.
                 // This ensures we don't get stuck in an infinite loop.
                 _ = try? container.superDecoder()
-                print("PluralLRCLIBLyrics: Skipped one malformed LRCLIBLyrics element")
+                Self.logger.error("PluralLRCLIBLyrics: Skipped one malformed LRCLIBLyrics element.")
             }
         }
         self.lyrics = decoded
     }
 
-    // Provide an encoder to keep Codable conformance symmetrical if needed later.
+/// Provide an encoder to keep Codable conformance symmetrical if needed later.
 //    func encode(to encoder: Encoder) throws {
 //        var container = encoder.unkeyedContainer()
 //        for lyric in lyrics {

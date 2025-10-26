@@ -95,6 +95,7 @@ public struct ColorSpotsAnimatableData {
 }
 
 extension ColorSpotsAnimatableData: VectorArithmetic {
+    /// Calculates the element-wise difference between two colour spot datasets.
     public static func - (lhs: ColorSpotsAnimatableData, rhs: ColorSpotsAnimatableData) -> ColorSpotsAnimatableData {
         .init(
             values: (0 ..< max(lhs.values.count, rhs.values.count)).map {
@@ -103,6 +104,7 @@ extension ColorSpotsAnimatableData: VectorArithmetic {
         )
     }
 
+    /// Adds the corresponding animatable values for two colour spot datasets.
     public static func + (lhs: ColorSpotsAnimatableData, rhs: ColorSpotsAnimatableData) -> ColorSpotsAnimatableData {
         .init(
             values: (0 ..< max(lhs.values.count, rhs.values.count)).map {
@@ -111,6 +113,7 @@ extension ColorSpotsAnimatableData: VectorArithmetic {
         )
     }
 
+    /// Multiplies every animatable value by the supplied scalar.
     public mutating func scale(by rhs: Double) {
         values = values.map { $0.scaled(by: rhs) }
     }
@@ -124,6 +127,7 @@ extension ColorSpotsAnimatableData: VectorArithmetic {
     }
 }
 extension ColorSpot {
+    /// Generates a random colour spot positioned within the unit square.
     static func random(withColor color: SwiftUI.Color) -> ColorSpot {
         .init(
             position: .init(x: CGFloat.random(in: 0 ..< 1), y: CGFloat.random(in: 0 ..< 1)),

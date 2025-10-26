@@ -8,5 +8,6 @@
 import SwiftUI
 
 extension View {
+    /// Applies the supplied transformation closure to the current view.
     func apply<V: View>(@ViewBuilder _ block: (Self) -> V) -> V { block(self) }
 }

@@ -21,6 +21,7 @@ public class LyricsParser {
     }
     
     
+    /// Resets parser state and begins processing the supplied lyric text.
     private func commonInit(lyrics: String) {
         header = LyricsHeader()
         parse(lyrics: lyrics)
@@ -29,6 +30,7 @@ public class LyricsParser {
     
     // MARK: Privates
     
+    /// Splits raw lyric content into individual lines for downstream parsing.
     private func parse(lyrics: String) {
         let lines = lyrics
             .replacingOccurrences(of: "\\n", with: "\n")
@@ -77,6 +79,7 @@ public class LyricsParser {
         
     }
     
+    /// Interprets a single lyric line, capturing metadata and lyric entries as needed.
     private func parseLine(line: String) {
         guard let line = line.blankToNil() else {
             return
@@ -116,6 +119,7 @@ public class LyricsParser {
         
     }
     
+    /// Extracts a metadata field from a line if it matches the expected prefix syntax.
     private func parseHeader(prefix: String, line: String) -> String? {
         if line.hasPrefix("[" + prefix + ":") && line.hasSuffix("]") {
             let startIndex = line.index(line.startIndex, offsetBy: prefix.count + 2)
@@ -126,6 +130,7 @@ public class LyricsParser {
         }
     }
     
+    /// Converts timestamp tokens and lyric text into strongly typed lyric lines.
     private func parseLyric(line: String) -> [LyricLine] {
         var cLine = line
         var items : [LyricLine] = []

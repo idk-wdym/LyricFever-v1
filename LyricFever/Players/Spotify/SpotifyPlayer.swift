@@ -7,6 +7,9 @@
 
 import ScriptingBridge
 import AppKit
+import OSLog
+
+private let spotifyPlayerLogger = AppLoggerFactory.makeLogger(category: "SpotifyPlayer")
 
 class SpotifyPlayer: @MainActor Player {
     var spotifyScript: SpotifyApplication? = SBApplication(bundleIdentifier: "com.spotify.client")
@@ -50,7 +53,7 @@ class SpotifyPlayer: @MainActor Player {
         guard isRunning else {
             return false
         }
-        print("Raw value player state \(spotifyScript?.playerState?.rawValue)")
+        spotifyPlayerLogger.debug("Spotify player state raw value: \(spotifyScript?.playerState?.rawValue ?? -1, privacy: .public)")
         if spotifyScript?.playerState?.rawValue == 0 {
             return false
         }
@@ -59,10 +62,11 @@ class SpotifyPlayer: @MainActor Player {
     
     
     @MainActor
+    /// Nudges Spotify playback to mitigate desynchronised lyric timestamps.
     func fixSpotifyLyricDrift() async throws {
         try await Task.sleep(nanoseconds: 2000000000)
         if isPlaying {
-            print("LYRIC UPDATER'S LYRIC DRIFT FIX CALLED")
+            spotifyPlayerLogger.info("Invoking Spotify lyric drift correction.")
             spotifyScript?.play?()
         }
     }
@@ -71,27 +75,33 @@ class SpotifyPlayer: @MainActor Player {
         spotifyScript?.soundVolume ?? 0
     }
     
+    /// Decreases Spotify’s output volume in five-point increments.
     func decreaseVolume() {
         guard let soundVolume = spotifyScript?.soundVolume else {
             return
         }
         spotifyScript?.setSoundVolume?(soundVolume-5)
     }
+    /// Increases Spotify’s output volume in five-point increments.
     func increaseVolume() {
         guard let soundVolume = spotifyScript?.soundVolume else {
             return
         }
         spotifyScript?.setSoundVolume?(soundVolume+5)
     }
+    /// Sets Spotify’s output volume to a specific value.
     func setVolume(to newVolume: Double) {
         spotifyScript?.setSoundVolume?(Int(newVolume))
     }
+    /// Toggles playback.
     func togglePlayback() {
         spotifyScript?.playpause?()
     }
+    /// Moves to the previous Spotify track or restarts the current one.
     func rewind() {
         spotifyScript?.previousTrack?()
     }
+    /// Advances playback to the next Spotify track.
     func forward() {
         spotifyScript?.nextTrack?()
     }
@@ -99,19 +109,20 @@ class SpotifyPlayer: @MainActor Player {
     var artworkImage: NSImage? {
         get async {
             guard let artworkUrlString = spotifyScript?.currentTrack?.artworkUrl, let artworkUrl = URL(string: artworkUrlString) else {
-                print("\(#function) missing artworlUrl")
+                spotifyPlayerLogger.error("Missing Spotify artwork URL for current track.")
                 return nil
             }
             do {
                 let artwork = try await URLSession.shared.data(for: URLRequest(url: artworkUrl))
                 return NSImage(data: artwork.0)
             } catch {
-                print("\(#function) failed to download artwork \(error)")
+                spotifyPlayerLogger.error("Failed to download Spotify artwork: \(error.localizedDescription, privacy: .public)")
                 return nil
             }
         }
     }
     
+    /// Brings the Spotify application to the foreground for user interaction.
     func activate() {
         spotifyScript?.activate()
     }

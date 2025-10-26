@@ -16,6 +16,7 @@ struct CurrentTimeWithStoredDate {
         self.storedDate = Date()
     }
     
+    /// Calculates the playback time by applying the elapsed delta since the stored timestamp.
     func adjustedCurrentTime(for date: Date) -> TimeInterval {
         let delta = date.timeIntervalSince(storedDate) * 1000 // convert seconds to milliseconds
         return currentTime + delta

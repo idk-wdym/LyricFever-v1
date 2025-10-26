@@ -37,6 +37,7 @@ struct MulticolorGradient: View, @MainActor Animatable {
 }
 
 extension Shader.Argument {
+    /// Converts gradient uniforms into shader argument data for GPU evaluation.
     static func uniforms(_ param: Uniforms) -> Shader.Argument {
         var copy = param
         return .data(Data(bytes: &copy, count: MemoryLayout<Uniforms>.stride))

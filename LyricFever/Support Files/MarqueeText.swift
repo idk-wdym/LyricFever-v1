@@ -112,12 +112,14 @@ public struct MarqueeText : View {
 
 fileprivate struct SizePreferenceKey: PreferenceKey {
     static var defaultValue: CGSize = .zero
+    /// Propagates the latest measured size from child views up the preference chain.
     static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
         value = nextValue()
     }
 }
 
 fileprivate struct MeasureSizeModifier: ViewModifier {
+    /// Wraps the content in a geometry reader so the parent can observe layout changes.
     public func body(content: Content) -> some View {
         content.background(GeometryReader { geometry in
             Color.clear.preference(key: SizePreferenceKey.self,
