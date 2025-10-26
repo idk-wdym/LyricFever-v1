@@ -10,6 +10,7 @@ import SDWebImage
 import ColorKit
 import Combine
 import TipKit
+import OSLog
 
 struct FullscreenView: View {
     @Environment(ViewModel.self) var viewmodel
@@ -27,6 +28,7 @@ struct FullscreenView: View {
             .autoconnect()
     @State var points: ColorSpots = .init()
     @State var showSettingsPopover = false
+    private let logger = AppLoggerFactory.makeLogger(category: "FullscreenView")
     
     enum HoverOptions {
         case playpause
@@ -41,6 +43,7 @@ struct FullscreenView: View {
     }
     
     @ViewBuilder
+    /// Renders a fullscreen control button with hover state and keyboard shortcut wiring.
     func fullscreenButton(systemName: String, hoverType: HoverOptions, keyEquivalent: KeyEquivalent, action: @escaping () -> Void) -> some View {
         Button {
             action()
@@ -54,6 +57,7 @@ struct FullscreenView: View {
         #endif
     }
     
+    /// Displays the playback, lyric, translation, and animation controls in fullscreen mode.
     @ViewBuilder func FullscreenButtons() -> some View {
         #if os(macOS)
         let highlightTip = NewSettings()
@@ -208,6 +212,7 @@ struct FullscreenView: View {
         }
     }
     
+    /// Displays hover tooltip.
     func displayHoverTooltip() -> LocalizedStringKey {
         switch currentHover {
             case .playpause:
@@ -231,6 +236,7 @@ struct FullscreenView: View {
         }
     }
     
+    /// Produces the styled lyric line view for the provided index, including translations.
     @ViewBuilder func lyricLineView(for element: LyricLine, index: Int) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             if !viewmodel.romanizedLyrics.isEmpty {
@@ -258,6 +264,7 @@ struct FullscreenView: View {
         .blur(radius: viewmodel.userDefaultStorage.blurFullscreen ? (index == viewmodel.currentlyPlayingLyricsIndex ? 0 : 5) : 0)
     }
     
+    /// Assembles the lyric list with padding, scrolling, and updater hooks.
     @ViewBuilder func lyrics(padding: CGFloat) -> some View {
         ZStack {
             if viewmodel.currentlyPlayingLyrics.isEmpty {
@@ -342,11 +349,11 @@ struct FullscreenView: View {
                 try Tips.configure()
             }
             catch {
-                print("Error configuring tips: \(error)")
+                logger.error("Failed to configure tips: \(error.localizedDescription, privacy: .public)")
             }
         }
         .task(id: viewmodel.artworkImage) {
-            print("NEW ARTWORK")
+            logger.info("Updating fullscreen gradient due to new artwork.")
             if let artworkImage = viewmodel.artworkImage, let dominantColors = try? artworkImage.dominantColors(with: .best, algorithm: .kMeansClustering) {
                 gradient = dominantColors.map({adjustedColor($0)})
             }
@@ -359,6 +366,7 @@ struct FullscreenView: View {
     typealias PlatformColor = UIColor
     #endif
 
+    /// Adjusts gradient colours to remain saturated without overpowering overlay text.
     func adjustedColor(_ color: PlatformColor) -> Color {
         var hue: CGFloat = 0
         var saturation: CGFloat = 0

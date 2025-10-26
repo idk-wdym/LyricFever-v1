@@ -9,12 +9,15 @@ import ScriptingBridge
 import MusicKit
 import MediaRemoteAdapter
 import AppKit
+import OSLog
+
+private let appleMusicPlayerLogger = AppLoggerFactory.makeLogger(category: "AppleMusicPlayer")
 
 class AppleMusicPlayer: Player {
     
     init() {
         musicController.onTrackInfoReceived = { data in
-            print("Track info received")
+            appleMusicPlayerLogger.info("Received Apple Music track info update.")
             Task { @MainActor in
                 self.artworkImage = data.payload.artwork
             }
@@ -53,7 +56,7 @@ class AppleMusicPlayer: Player {
     }
     var duration: Int? {
         guard let seconds = appleMusicScript?.currentTrack?.duration.map(Int.init) else {
-            print("Apple Music Player: Couldn't fetch duration")
+            appleMusicPlayerLogger.error("Failed to fetch Apple Music track duration.")
             return nil
         }
         return seconds * 1000
@@ -83,27 +86,33 @@ class AppleMusicPlayer: Player {
         appleMusicScript?.soundVolume ?? 0
     }
     
+    /// Decreases Music’s output volume in five-point increments.
     func decreaseVolume() {
         guard let soundVolume = appleMusicScript?.soundVolume else {
             return
         }
         appleMusicScript?.setSoundVolume?(soundVolume-5)
     }
+    /// Increases Music’s output volume in five-point increments.
     func increaseVolume() {
         guard let soundVolume = appleMusicScript?.soundVolume else {
             return
         }
         appleMusicScript?.setSoundVolume?(soundVolume+5)
     }
+    /// Sets Music’s output volume to a specific value.
     func setVolume(to newVolume: Double) {
         appleMusicScript?.setSoundVolume?(Int(newVolume))
     }
+    /// Toggles playback.
     func togglePlayback() {
         appleMusicScript?.playpause?()
     }
+    /// Moves to the previous Music track or restarts the current one.
     func rewind() {
         appleMusicScript?.previousTrack?()
     }
+    /// Advances playback to the next Music track.
     func forward() {
         appleMusicScript?.nextTrack?()
     }
@@ -118,6 +127,7 @@ class AppleMusicPlayer: Player {
 //        return artworkImage
 //    }
     
+    /// Brings the Music application to the foreground for user interaction.
     func activate() {
         appleMusicScript?.activate()
     }

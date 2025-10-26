@@ -11,6 +11,7 @@ import ColorKit
 import Combine
 
 struct VisualEffectView: NSViewRepresentable {
+    /// Creates the HUD-style NSVisualEffectView used behind the karaoke overlay.
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
 
@@ -20,6 +21,7 @@ struct VisualEffectView: NSViewRepresentable {
         return view
     }
 
+    /// Keeps the backing effect view aligned with the karaoke visual requirements.
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         //
         nsView.material = .hudWindow
@@ -31,6 +33,7 @@ struct KaraokeView: View {
     @Environment(ViewModel.self) var viewmodel
     @AppStorage("karaokeTransparency") var karaokeTransparency: Double = 50
     
+    /// Resolves the most appropriate lyric string for the highlighted line.
     func currentWords(for currentlyPlayingLyricsIndex: Int) -> String {
         if !viewmodel.romanizedLyrics.isEmpty {
             return viewmodel.romanizedLyrics[currentlyPlayingLyricsIndex]
@@ -41,6 +44,7 @@ struct KaraokeView: View {
         }
     }
     
+    /// Stacks original, romanized, and translated lyric variants for karaoke display.
     func multilingualView(_ currentlyPlayingLyricsIndex: Int) -> some View {
         VStack(spacing: 6) {
             Text(verbatim: currentWords(for: currentlyPlayingLyricsIndex))
@@ -52,11 +56,13 @@ struct KaraokeView: View {
         }
     }
     
+    /// Determines whether the translated lyric differs from the original text.
     func originalAndTranslationAreDifferent(for currentlyPlayingLyricsIndex: Int) -> Bool {
         viewmodel.currentlyPlayingLyrics[currentlyPlayingLyricsIndex].words != viewmodel.translatedLyric[currentlyPlayingLyricsIndex]
     }
-    
+
     @ViewBuilder
+    /// Chooses the appropriate lyric view based on romanization and translation availability.
     func lyricsView() -> some View {
         if let currentlyPlayingLyricsIndex = viewmodel.currentlyPlayingLyricsIndex {
             if viewmodel.translationExists {

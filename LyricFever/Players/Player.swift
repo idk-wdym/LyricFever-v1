@@ -7,6 +7,9 @@
 
 import Foundation
 import AppKit
+import OSLog
+
+private let playerLogger = AppLoggerFactory.makeLogger(category: "Player")
 
 protocol Player {
     // track details
@@ -27,12 +30,17 @@ protocol Player {
     // additional menubar functions
     var volume: Int { get }
     
-    // fullscreen functions
+    /// Lowers the output volume by a single device-defined increment.
     func decreaseVolume()
+    /// Raises the output volume by a single device-defined increment.
     func increaseVolume()
+    /// Sets the player volume to a specific level between the supported bounds.
     func setVolume(to newVolume: Double)
+    /// Toggles playback.
     func togglePlayback()
+    /// Rewinds playback or restarts the current track, depending on provider support.
     func rewind()
+    /// Advances playback to the next track or chapter as supported by the provider.
     func forward()
     
     // fullscreen album art
@@ -40,7 +48,7 @@ protocol Player {
     var artworkImage: NSImage? { get async }
 //    var artworkImageURL: URL? { get }
     
-    // menubar behaviour
+    /// Activates the underlying media application to ensure menu bar interactions succeed.
     func activate()
     var currentHoverItem: MenubarButtonHighlight { get }
 }
@@ -54,12 +62,13 @@ extension Player {
         }
     }
     
+    /// Downloads and decodes the artwork image for the supplied URL.
     func artwork(for artworkURL: URL) async -> NSImage? {
         do {
             let artwork = try await URLSession.shared.data(for: URLRequest(url: artworkURL))
             return NSImage(data: artwork.0)
         } catch {
-            print("\(#function) failed to download artwork \(error)")
+            playerLogger.error("Failed to download artwork: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

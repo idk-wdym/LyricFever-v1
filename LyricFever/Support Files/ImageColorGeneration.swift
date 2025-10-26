@@ -6,10 +6,17 @@
 //
 
 import AppKit
+import OSLog
+
+private enum ImageColorLogging {
+    static let logger = AppLoggerFactory.makeLogger(category: "ImageColorGeneration")
+}
 
 
 #if os(macOS)
 extension NSImage {
+    /// Determines a saturated colour that remains legible for white text overlays.
+    /// - Returns: Packed RGB integer suitable for persistence.
     func findWhiteTextLegibleMostSaturatedDominantColor() -> Int32 {
         guard let dominantColors = try? self.dominantColors(with: .best, algorithm: .kMeansClustering).map({self.adjustedColor($0)}).sorted(by: { $0.saturationComponent > $1.saturationComponent }) else {
             return self.findAverageColor()
@@ -27,6 +34,8 @@ extension NSImage {
         return self.findAverageColor()
     }
     // credits: Christian Selig https://christianselig.com/2021/04/efficient-average-color/
+    /// Calculates the average colour of an image by sampling a downscaled representation.
+    /// - Returns: Packed RGB integer representing the average colour.
     func findAverageColor() -> Int32 {
         guard let cgImage = cgImage else { return 0 }
         
@@ -92,10 +101,11 @@ extension NSImage {
         // Pack into a single UInt32
         
 //        return (UInt32(red) << 16) | (UInt32(green) << 8) | UInt32(blue)
-        print("Find average color: red is \(red), green is \(green), blue is \(blue)")
+        ImageColorLogging.logger.debug("Computed average colour components r:\(red, privacy: .public) g:\(green, privacy: .public) b:\(blue, privacy: .public).")
         let combinedValue = (red << 16) | (green << 8) | blue
         return Int32(bitPattern: UInt32(combinedValue))
     }
+    /// Adjusts a colour to increase saturation and maintain brightness for legibility.
     func adjustedColor(_ nsColor: NSColor) -> NSColor {
         // Convert NSColor to HSB components
         var hue: CGFloat = 0
@@ -119,14 +129,17 @@ extension NSImage {
         return modifiedNSColor
     }
     
+    /// Extracts the red byte from packed ARGB pixel data.
     private func red(for pixelData: UInt32) -> UInt8 {
         return UInt8((pixelData >> 16) & 255)
     }
 
+    /// Extracts the green byte from packed ARGB pixel data.
     private func green(for pixelData: UInt32) -> UInt8 {
         return UInt8((pixelData >> 8) & 255)
     }
 
+    /// Extracts the blue byte from packed ARGB pixel data.
     private func blue(for pixelData: UInt32) -> UInt8 {
         return UInt8((pixelData >> 0) & 255)
     }

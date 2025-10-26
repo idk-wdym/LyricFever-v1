@@ -14,6 +14,7 @@
 //
 import SwiftUI
 import Combine
+import OSLog
 
 struct BackgroundView: View {
     @Binding var colors: [SwiftUI.Color]
@@ -24,6 +25,7 @@ struct BackgroundView: View {
     @State var bias: Float = 0.002
     @State var power: Float = 2.5
     @State var noise: Float = 2
+    private let logger = AppLoggerFactory.makeLogger(category: "BackgroundView")
 
     var body: some View {
         MulticolorGradient(
@@ -38,7 +40,7 @@ struct BackgroundView: View {
             }
         }
         .onChange(of: colors) {
-            print("change color called")
+            logger.debug("Background gradient colours updated.")
             withAnimation(.easeInOut(duration: BackgroundView.animationDuration/4)){
                 points = self.colors.map { .random(withColor: $0) }
             }

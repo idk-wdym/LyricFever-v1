@@ -19,6 +19,7 @@ import UniformTypeIdentifiers
 
 class LocalFileUploadProvider {
     @MainActor
+    /// Presents a file picker that lets the user choose a local LRC lyric file.
     func selectLRC() async -> URL? {
         defer {
             NSApp.setActivationPolicy(.accessory)
@@ -44,6 +45,7 @@ class LocalFileUploadProvider {
 
 
     @MainActor
+    /// Loads lyrics from a user-selected local LRC file for the specified track.
     func localFetch(for trackID: String, _ trackName: String) async throws -> [LyricLine] {
         if let fileUrl = await selectLRC(), let lyricText = try? String(contentsOf: fileUrl, encoding: .utf8) {
             let parser = LyricsParser(lyrics: lyricText)

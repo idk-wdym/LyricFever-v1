@@ -13,10 +13,12 @@ extension CharacterSet {
 }
 
 extension String {
+    /// Returns nil when the string is empty, otherwise passes the value through unchanged.
     public func emptyToNil() -> String? {
         return self == "" ? nil : self
     }
-    
+
+    /// Treats whitespace-only strings as nil while preserving meaningful content.
     public func blankToNil() -> String? {
         return self.trimmingCharacters(in: .whitespacesAndNewlines) == "" ? nil : self
     }

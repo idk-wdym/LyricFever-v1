@@ -8,6 +8,7 @@
 import SwiftUI
 import Translation
 import LaunchAtLogin
+import OSLog
 
 extension NSScreen {
     static var mainWidth: CGFloat {
@@ -28,6 +29,7 @@ struct LyricFever: App {
     @State var viewmodel = ViewModel.shared
     @Environment(\.openWindow) var openWindow
     @Environment(\.openURL) var openURL
+    private let logger = AppLoggerFactory.makeLogger(category: "LyricFeverApp")
     
     var body: some Scene {
         MenuBarExtra {
@@ -41,23 +43,23 @@ struct LyricFever: App {
                 .environment(viewmodel)
             .task(id: viewmodel.currentlyPlaying) {
                 if viewmodel.currentlyPlaying == nil {
-                    print("Incorrect task fired. Ignored on nil currentlyPlaying value")
+                    logger.warning("Ignored artwork fetch because currentlyPlaying is nil.")
                     return
                 }
                 do {
-                    print("Artwork Fetch Service:Fetching new artwork image for currentlyPlaying change")
+                    logger.info("Fetching artwork image for currently playing track change.")
                     if let artworkImage = await viewmodel.currentPlayerInstance.artworkImage {
-                        print("Artwork Fetch Service: Fetched from player")
+                        logger.info("Fetched artwork from player APIs.")
                         viewmodel.artworkImage = artworkImage
                     } else if let artistName = viewmodel.currentlyPlayingArtist, let currentAlbumName = viewmodel.currentAlbumName {
                         if let mbid = await MusicBrainzArtworkService.findMbid(albumName: currentAlbumName, artistName: artistName) {
                             viewmodel.artworkImage = await MusicBrainzArtworkService.artworkImage(for: mbid)
                         }
                     } else {
-                        print("Artwork Fetch Service: couldn't grab mbid image nor player image")
+                        logger.warning("Unable to resolve artwork image via player or MusicBrainz.")
                     }
                 } catch {
-                    print("Error fetching artwork image for currentlyPlaying: \(error)")
+                    logger.error("Artwork fetch failed: \(error.localizedDescription, privacy: .public)")
                 }
             }
             .task(id: viewmodel.userDefaultStorage.latestUpdateWindowShown) {
@@ -73,14 +75,14 @@ struct LyricFever: App {
                     openWindow(id: "onboarding")
                 } else {
                     guard !viewmodel.isFirstFetch else {
-                        print("Onboarding Task: ignoring false runtime call, cannot refresh as first fetch")
+                        logger.notice("Skipping onboarding refresh because first fetch has not completed.")
                         return
                     }
                     // make refreshLyrics use the same Task<> that fetch(_) uses
                     do {
                         try await viewmodel.refreshLyrics()
                     } catch {
-                        print("Couldn't refresh lyrics on hasOnboarding: \(error)")
+                        logger.error("Refresh lyrics failed during onboarding task: \(error.localizedDescription, privacy: .public)")
                     }
                 }
             }
@@ -133,7 +135,7 @@ struct LyricFever: App {
                 }
             }
             .onChange(of: viewmodel.currentPlayer) {
-                print("Setting hasOnboarded to false due to player change")
+                logger.notice("Resetting onboarding status due to player change.")
                 viewmodel.userDefaultStorage.hasOnboarded = false
             }
             .onChange(of: viewmodel.fullscreen) {
@@ -158,7 +160,7 @@ struct LyricFever: App {
             .onChange(of: viewmodel.isPlaying) {
                 if viewmodel.isPlaying, viewmodel.showLyrics, viewmodel.userDefaultStorage.hasOnboarded {
                     if !viewmodel.currentlyPlayingLyrics.isEmpty  {
-                        print("timer started for spotify change, lyrics not nil")
+                        logger.info("Starting lyric updater due to Spotify change with non-empty lyrics.")
                         viewmodel.startLyricUpdater()
                     }
                 } else {
@@ -167,12 +169,12 @@ struct LyricFever: App {
             }
             .task(id: viewmodel.currentlyPlayingAppleMusicPersistentID) {
                 if viewmodel.currentlyPlayingAppleMusicPersistentID != nil {
-                    print("Apple Music: calling Starter on new persistent ID")
+                    logger.info("Triggering Apple Music starter for new persistent ID.")
                     await viewmodel.appleMusicStarter()
                 }
             }
             .onChange(of: viewmodel.currentlyPlaying) {
-                print("song change")
+                logger.info("Detected song change event from player.")
                 Task {
                     await viewmodel.onCurrentlyPlayingIDChange()
                 }
@@ -259,6 +261,7 @@ struct LyricFever: App {
 extension String {
   // https://gist.github.com/budidino/8585eecd55fd4284afaaef762450f98e
     @MainActor
+    /// Truncates the string to the configured lyric length and appends the trailing marker if needed.
     func trunc(length: Int? = nil, trailing: String = "…") -> String {
         let length = length ?? ViewModel.shared.userDefaultStorage.truncationLength
         return (self.count > length) ? self.prefix(length) + trailing : self
